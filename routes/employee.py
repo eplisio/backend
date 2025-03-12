@@ -60,6 +60,7 @@ async def clock_in(
     employee: dict = Depends(get_current_employee)
 ):
     employee_id = employee.get("employee_id")
+    organization_id = employee.get("organization_id")
     
     if not employee_id:
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -79,7 +80,8 @@ async def clock_in(
         "employee_id": ObjectId(employee_id),
         "clock_in_time": datetime.now(timezone.utc),
         "date": today,
-        "work_from_home": work_from_home  # Either True or False
+        "work_from_home": work_from_home, # Either True or False
+        "organization_id": organization_id
     }
     await attendance_collection.insert_one(attendance_data)
 
@@ -143,12 +145,14 @@ async def add_clinic(
     employee: dict = Depends(get_current_employee)
 ):
     employee_id = employee.get("employee_id")
+    organization_id = employee.get("organization_id")
     
     if not employee_id:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     clinic_data = clinic.model_dump()
     clinic_data["employee_id"] = ObjectId(employee_id)
+    clinic_data["organization_id"] = ObjectId(organization_id)
 
     # Store in MongoDB
     inserted_clinic = await clinic_collection.insert_one(clinic_data)
@@ -162,6 +166,7 @@ async def add_clinic(
 async def check_in(data: CheckInRequest, employee: dict = Depends(get_current_employee)):
     
     employee_id = employee.get("employee_id")
+    organization_id = employee.get("organization_id")
     
     if not employee_id:
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -186,6 +191,7 @@ async def check_in(data: CheckInRequest, employee: dict = Depends(get_current_em
     visit = {
         "employee_id": ObjectId(data.employee_id),
         "clinic_id": ObjectId(data.clinic_id),
+        "organization_id": ObjectId(organization_id),
         "check_in_time": datetime.now(timezone.utc),
         "check_out_time": None,
         "time_spent_minutes": None,
@@ -328,14 +334,7 @@ async def complete_order(order_id: str, employee: dict = Depends(get_current_emp
         }
     })
 
-    # Mark the order as completed & auto-update statuses
-    await orders_collection.update_one(
-        {"_id": ObjectId(order_id)},
-        {"$set": {
-            "status": "Completed",
-            "payment_status": "Completed",
-            "delivered_status": "Completed"
-        }}
-    )
+    # Remove the completed order from orders_collection
+    await orders_collection.delete_one({"_id": ObjectId(order_id)})
 
-    return {"message": "Order completed successfully"}
+    return {"message": "Order completed successfully and removed from orders collection"}

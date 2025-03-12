@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException,UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException,UploadFile, File, Query
 from bson import ObjectId
 from models.products import ProductModel
 from database import  product_collection
-from security import get_current_admin
+from security import get_current_admin, get_current_user
 import pandas as pd
 
 import httpx  # type: ignore # To download files from URLs
@@ -145,4 +145,54 @@ async def upload_products_excel(
 
     return {
         "message": f"{updated_count} products updated, {new_count} new products added"
+    }
+        
+
+
+@router.get("/products", status_code=200)
+async def get_products(
+    category: str = Query(None, description="Filter by category"),
+    manufacturer: str = Query(None, description="Filter by manufacturer"),
+    name: str = Query(None, description="Search by product name"),
+    page: int = Query(1, ge=1, description="Page number (starts from 1)"),
+    page_size: int = Query(10, ge=1, le=100, description="Products per page (max 100)"),
+    user: dict = Depends(get_current_user)  # Handles both Employees & Managers
+):
+    """
+    Get a paginated list of products available in the employee's or manager's organization.
+    If no filters are applied, return all products.
+    """
+    organization_id = user.get("organization_id")  # Fetch organization ID from token
+    if not organization_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # Start with an empty query to fetch all products
+    query = {"organization_id": ObjectId(organization_id)}
+
+    # Apply filters only if provided
+    if category:
+        query["category"] = category
+    if manufacturer:
+        query["manufacturer"] = manufacturer
+    if name:
+        query["name"] = {"$regex": name, "$options": "i"}  # Case-insensitive search
+
+    # Pagination logic
+    skip = (page - 1) * page_size
+    total_products = await product_collection.count_documents(query)
+
+    # Fetch paginated products
+    products_cursor = product_collection.find(query).skip(skip).limit(page_size)
+    products = await products_cursor.to_list(length=page_size)
+
+    # Convert ObjectId fields to strings
+    for product in products:
+        product["_id"] = str(product["_id"])
+
+    return {
+        "products": products,
+        "total_products": total_products,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total_products + page_size - 1) // page_size,  # Round up
     }

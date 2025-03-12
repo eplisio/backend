@@ -63,5 +63,40 @@ def get_current_employee(
         return payload  # This will contain employee_id, role, admin_id, etc.
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
+    
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
+    """
+    Extracts user details from JWT token (Valid for both Employees & Admins).
+    """
+    token = credentials.credentials  # Extract token from Authorization header
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        role = payload.get("role")
+        organization_id = payload.get("organization_id")
+        employee_id = payload.get("employee_id")
+        admin_id = payload.get("admin_id")
+
+        if not role or not organization_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        if role == "employee" and not employee_id:
+            raise HTTPException(status_code=401, detail="Invalid employee token")
+
+        if role == "admin" and not admin_id:
+            raise HTTPException(status_code=401, detail="Invalid admin token")
+
+        return {
+            "role": role,
+            "organization_id": organization_id,
+            "employee_id": employee_id,
+            "admin_id": admin_id
+        }
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")    
         
         
